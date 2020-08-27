@@ -12,14 +12,17 @@ def evaluate(sentence_in: str) -> Union[str, int, float]:
         sentence = _check_for_signs(sentence)
     except ZeroDivisionError:
         raise ZeroDivision(sentence)
-    return _format(sentence)
+    sentence = _format(sentence)
+    if sentence.endswith('.0'):
+        return sentence[:-2]
+    return sentence
 
 
 signs = ['+', '-', '*', '/', '^', '%']
 rs = '\\' + '\\'.join(signs)
-regular = re.compile(rf'([^{rs}]+)([{rs}])(-?[^{rs}]+)')
-hp_regular = re.compile(rf'([^{rs}]+)([\*\/\%])(-?[^{rs}]+)')
-expon_regular = re.compile(rf'([^{rs}]+)([\^])(-?[^{rs}]+)')
+regular = re.compile(rf'(-?[^{rs}]+)([{rs}])(-?[^{rs}]+)')
+hp_regular = re.compile(rf'(-?[^{rs}]+)([\*\/\%])(-?[^{rs}]+)')
+expon_regular = re.compile(rf'(-?[^{rs}]+)([\^])(-?[^{rs}]+)')
 
 base_signs = {
     '+': float.__add__,
@@ -51,17 +54,21 @@ def _calc(sentence: str, exp: Tuple[str, str, str] = None) -> str:
             return sentence
     first_f = float(first)
     second_f = float(second)
-    if first_f > 1e15 or second_f > 1e15:
+    if abs(first_f) > 1e15 or abs(second_f) > 1e15:
         raise ValueTooBig(sentence)
     if sign in base_signs:
-        return str(base_signs.get(sign)(first_f, second_f))
+        return '{:.15f}'.format(base_signs.get(sign)(first_f, second_f))
     elif sign == '^':
         if second_f < 1:
             raise ExponentError(sentence)
-        return str(_exponent(first_f, int(second_f)))
+        return '{:.15f}'.format(_exponent(first_f, int(second_f)))
 
 
 def _exponent(base: float, exponent: int) -> float:
+    if exponent == 0:
+        if base == 0:
+            return 0
+        return 1
     result = base
     for _ in range(exponent-1):
         result = result * base
@@ -77,8 +84,6 @@ def _check_for_signs(sentence: str) -> str:
     global _last_exp
     for sign in signs:
         if sign in sentence:
-            if 'e+' in sentence:
-                sentence = sentence.replace('e+', 'e')
             if sign in {'+', '-'} and _hp_signs_in(sentence):
                 exp = hp_regular.findall(sentence)
             elif sign in {'+', '-', '/', '*', '%'} and '^' in sentence:
@@ -95,7 +100,7 @@ def _check_for_signs(sentence: str) -> str:
 
 
 def _hp_signs_in(sentence: str) -> bool:
-    for sign in ['*', '/', '^', '%']:
+    for sign in ['*', '/', '%']:
         if sign in sentence:
             return True
     return False
@@ -115,7 +120,7 @@ def _deal_with_brackets(sentence: str) -> str:
     return sentence
 
 
-def _format(text: str) -> str:  # noqa (but i agree, really too complex)
+def _format(text: str) -> str:
     if '.' not in text:
         return text
     dot_splitted = text.split('.')
@@ -127,32 +132,27 @@ def _format(text: str) -> str:  # noqa (but i agree, really too complex)
     e_splitted = after_dot.split('e')
     if len(e_splitted) > 2:
         return text
-    elif 'e' not in after_dot:
-        if '999' in text or '000' in text:
-            try:
-                number = float(text)
-            except ValueError:
-                return text
-            if number > 1 or number < -1:
-                return round(number, 3)
-            else:
-                return _format_fraction(text)
-        return text
-    fraction, multiplier = e_splitted[0], e_splitted[1]
-    if not fraction.isdigit() or not _isdigit(multiplier):
-        return text
-    multiplier = int(multiplier)
-    if multiplier > 0:
-        return integer + fraction + '0'*(multiplier - len(fraction))
-    else:
-        result = '0.'+'0'*multiplier + integer + fraction
-        return _format_fraction(result)
+    if '999' in text or '000' in text:  # TODO: недостаточно универсально
+        try:
+            number = float(text)
+        except ValueError:
+            return text
+        if number < 1 or number < -1:
+            return str(round(number, 3))
+        else:
+            return _format_fraction(text)
+    return text
 
 
 def _format_fraction(text: str) -> str:
     for i, char in enumerate(text[::-1]):
-        if i == 0: continue  # noqa
-        if char not in {'9', '0'}: break  # noqa
+        if i == 0:
+            continue
+        if char == '.':
+            i = i - 1
+            break
+        if char not in {'9', '0'}:
+            break
     if text[-i] == '9':
         return text[:-i-1] + str(int(text[-i-1])+1)
     return text[:-i]
